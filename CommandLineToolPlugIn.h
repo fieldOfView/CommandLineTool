@@ -67,4 +67,7 @@
 /* Declare a property output port of type "String" and with the key "outputStandardError" */
 @property(assign) NSString* outputStandardError;
 
+/* Added by DeeToX */
+@property BOOL inputEnable;
+
 @end

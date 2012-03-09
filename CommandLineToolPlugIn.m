@@ -56,7 +56,7 @@
 @implementation CommandLineToolPlugIn
 
 /* We need to declare the input / output properties as dynamic as Quartz Composer will handle their implementation */
-@dynamic inputPath, inputStandardIn, outputStatus, outputStandardOut, outputStandardError;
+@dynamic inputEnable, inputPath, inputStandardIn, outputStatus, outputStandardOut, outputStandardError;
 
 + (NSDictionary*) attributes
 {
@@ -67,6 +67,8 @@
 + (NSDictionary*) attributesForPropertyPortWithKey:(NSString*)key
 {
 	/* Return the attributes for the plug-in property ports */
+	if([key isEqualToString:@"inputEnable"])
+	return [NSDictionary dictionaryWithObject:@"Enable" forKey:QCPortAttributeNameKey];
 	if([key isEqualToString:@"inputPath"])
 	return [NSDictionary dictionaryWithObjectsAndKeys:@"Path", QCPortAttributeNameKey, @"/bin/ls", QCPortAttributeDefaultValueKey, nil];
 	if([key isEqualToString:@"inputStandardIn"])
@@ -162,6 +164,7 @@
 	NSPipe*				errorPipe = nil;
 	NSFileHandle*		fileHandle;
 	
+	
 	/* Reset output variables */
 	if(outData)
 	*outData = nil;
@@ -207,6 +210,7 @@
 			goto Exit;
 		}
 	}
+
 	
 	/* Launch task */
 NS_DURING
@@ -216,6 +220,8 @@ NS_HANDLER
 NS_ENDHANDLER
 	if(task == nil)
 	goto Exit;
+	
+
 	
 	/* Write data to standard input pipe */
 	if(fileHandle = [inPipe fileHandleForWriting]) {
@@ -231,18 +237,25 @@ NS_ENDHANDLER
 	if(task == nil)
 	goto Exit;
 	
+	
+
+	
 	/* Wait for task to complete and read data from standard output and standard error pipes in background */
 	if(fileHandle = [outPipe fileHandleForReading]) {
 		*outData = [NSMutableData data];
 		[[NSNotificationCenter defaultCenter] addObserver:*outData selector:@selector(_CommandLineToolPlugInFileHandleDataAvailable:) name:NSFileHandleDataAvailableNotification object:fileHandle];
 		[fileHandle waitForDataInBackgroundAndNotify];
 	}
+	
 	if(fileHandle = [errorPipe fileHandleForReading]) {
 		*errorData = [NSMutableData data];
 		[[NSNotificationCenter defaultCenter] addObserver:*errorData selector:@selector(_CommandLineToolPlugInFileHandleDataAvailable:) name:NSFileHandleDataAvailableNotification object:fileHandle];
 		[fileHandle waitForDataInBackgroundAndNotify];
 	}
-	[task waitUntilExit];
+	
+	/* Removed by DeeToX (THIS is the height issue) */
+	//[task waitUntilExit];
+	
 	if(fileHandle = [errorPipe fileHandleForReading]) {
 		[[NSNotificationCenter defaultCenter] removeObserver:*errorData name:NSFileHandleDataAvailableNotification object:fileHandle];
 		[(NSMutableData*)*errorData appendData:[fileHandle readDataToEndOfFile]];
@@ -252,6 +265,7 @@ NS_ENDHANDLER
 		[(NSMutableData*)*outData appendData:[fileHandle readDataToEndOfFile]];
 	}
 	
+
 Exit:
 	[[inPipe fileHandleForReading] closeFile];
 	[[inPipe fileHandleForWriting] closeFile];
@@ -272,39 +286,39 @@ Exit:
 	NSData*					errorData;
 	int						status;
 	
-	/* Make sure we have a path */
-	if(![self.inputPath length]) {
-		self.outputStatus = 0;
-		self.outputStandardOut = @"";
-		self.outputStandardError = @"";
-		return YES;
+	/* Added by DeeToX */
+	if (self.inputEnable)
+	{
+		/* Make sure we have a path */
+		if(![self.inputPath length]) {
+			
+		}
+	
+		/* Create task */
+		task = [NSTask new];
+		[task setLaunchPath:[self.inputPath stringByStandardizingPath]];
+		if(_argumentCount) {
+			args = [NSMutableArray new];
+			for(i = 0; i < _argumentCount; ++i)
+				[args addObject:[self valueForInputKey:[NSString stringWithFormat:@"argument_%i", i]]];
+			[task setArguments:args];
+			[args release];
+		}
+	
+		/* Execute task */
+		self.outputStatus = [self _runTask:task inData:([self.inputStandardIn length] ? [self.inputStandardIn dataUsingEncoding:NSUTF8StringEncoding] : nil) outData:&outData errorData:&errorData];
+		if([outData length]) 
+			self.outputStandardOut = [[[NSString alloc] initWithBytes:[outData bytes] length:([outData length] - 1) encoding:NSUTF8StringEncoding] autorelease];
+		else
+			self.outputStandardOut = @"";
+		if([errorData length])
+			self.outputStandardError = [[[NSString alloc] initWithBytes:[errorData bytes] length:([errorData length] - 1) encoding:NSUTF8StringEncoding] autorelease];
+		else
+			self.outputStandardError = @"";
+	
+		/* Destroy task */
+		[task release];
 	}
-	
-	/* Create task */
-	task = [NSTask new];
-	[task setLaunchPath:[self.inputPath stringByStandardizingPath]];
-	if(_argumentCount) {
-		args = [NSMutableArray new];
-		for(i = 0; i < _argumentCount; ++i)
-		[args addObject:[self valueForInputKey:[NSString stringWithFormat:@"argument_%i", i]]];
-		[task setArguments:args];
-		[args release];
-	}
-	
-	/* Execute task */
-	self.outputStatus = [self _runTask:task inData:([self.inputStandardIn length] ? [self.inputStandardIn dataUsingEncoding:NSUTF8StringEncoding] : nil) outData:&outData errorData:&errorData];
-	if([outData length])
-	self.outputStandardOut = [[[NSString alloc] initWithBytes:[outData bytes] length:([outData length] - 1) encoding:NSUTF8StringEncoding] autorelease];
-	else
-	self.outputStandardOut = @"";
-	if([errorData length])
-	self.outputStandardError = [[[NSString alloc] initWithBytes:[errorData bytes] length:([errorData length] - 1) encoding:NSUTF8StringEncoding] autorelease];
-	else
-	self.outputStandardError = @"";
-	
-	/* Destroy task */
-	[task release];
-	
 	return YES;
 }
 
